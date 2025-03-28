@@ -1,0 +1,216 @@
+# Understanding Luthien Control: Rationale and Approach
+
+## Learn More
+
+To understand the broader vision behind this framework—why we built it and how it fits into the AI landscape—check out this explanation of Luthien’s overall rationale. It covers key principles, real use cases, and future plans for building robust, privacy-first AI controls.
+
+---
+
+## Technical Breakdown
+
+Below is a detailed analysis of the Luthien Control codebase, focusing on each component and the interactions among them.
+
+### 1. Project Structure and Entry Points
+
+```bash
+luthien_control/
+├── __init__.py         # Package initialization, version 0.1.0
+├── __main__.py         # Entry point for running as module
+├── run.py              # Server startup configuration
+├── proxy/              # Core proxy implementation
+├── policies/           # Policy engine
+└── logging/            # Logging infrastructure
+```
+
+### 2. Server Configuration and Startup (`run.py`)
+
+```python
+# Key configurations:
+- Host: "0.0.0.0" (default)
+- Port: 8000 (default)
+- Hot Reload: Enabled by default
+- Environment Variables:
+  - LUTHIEN_HOST
+  - LUTHIEN_PORT
+  - LUTHIEN_RELOAD
+  - OPENAI_API_KEY
+```
+
+### 3. Proxy Server Implementation (`proxy/server.py`)
+
+#### A. FastAPI Application Setup
+```python
+app = FastAPI(title="Luthien Control Framework")
+# CORS middleware enabled for all origins (configurable for production)
+```
+
+#### B. Configuration Management
+```python
+class ProxyConfig(BaseModel):
+    target_url: str  # Default: "https://api.openai.com/v1"
+    api_key: Optional[str]  # Loaded from OPENAI_API_KEY env var
+```
+
+#### C. Request Flow
+```python
+@app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def proxy_request(request: Request, path: str):
+    1. Constructs target URL
+    2. Processes headers (removes 'authorization', adds API key)
+    3. Captures request body
+    4. Logs request details
+    5. Applies request policies
+    6. Forwards request to target API
+    7. Captures response
+    8. Applies response policies
+    9. Returns processed response
+```
+
+#### D. Header Processing
+```python
+def get_headers(request: Request) -> Headers:
+    # Removes: 
+    - Original authorization
+    - Host
+    - Content-length
+    # Adds:
+    - Bearer token from config
+```
+
+### 4. Policy Engine (`policies/manager.py`)
+
+#### A. Policy Manager Structure
+```python
+class PolicyManager:
+    _policies: List[ControlPolicy]  # Stores active policies
+```
+
+#### B. Policy Operations
+```python
+1. register_policy(policy: ControlPolicy)
+2. unregister_policy(policy: ControlPolicy)
+3. apply_request_policies(...)
+4. apply_response_policies(...)
+```
+
+#### C. Request Policy Flow
+```python
+async def apply_request_policies(...):
+    request_data = {
+        'target_url': target_url,
+        'headers': headers,
+        'body': body
+    }
+    # Sequential policy application
+    for policy in self._policies:
+        policy_result = await policy.process_request(...)
+        request_data.update(policy_result)
+```
+
+#### D. Response Policy Flow
+```python
+async def apply_response_policies(...):
+    response_data = {
+        'status_code': response.status_code,
+        'headers': dict(response.headers),
+        'content': content
+    }
+    # Sequential policy application
+    for policy in self._policies:
+        policy_result = await policy.process_response(...)
+        response_data.update(policy_result)
+```
+
+### 5. Error Handling
+```python
+try:
+    # Request processing
+except httpx.RequestError as e:
+    raise HTTPException(status_code=500, detail=f"Error forwarding request: {str(e)}")
+except Exception as e:
+    raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+```
+
+### 6. Technical Specifications
+
+#### A. Dependencies
+- **FastAPI**: Web framework
+- **httpx**: Async HTTP client
+- **pydantic**: Data validation
+- **uvicorn**: ASGI server
+- **python-dotenv**: Environment management
+- **brotli**: Compression handling
+
+#### B. HTTP Features
+- Supports GET, POST, PUT, DELETE methods
+- Handles query parameters
+- Processes multipart/form-data
+- Manages content encoding
+- Preserves streaming responses
+
+#### C. Security Features
+- API key management
+- Header sanitization
+- Request validation
+- Policy-based controls
+- CORS configuration
+
+### 7. Request/Response Flow Diagram
+
+```mermaid
+graph LR;
+    A[Client Request] --> B[Header Processing];
+    B --> C[Request Logging];
+    C --> D[Request Policies];
+    D --> E[Forward to API];
+    E --> F[Receive Response];
+    F --> G[Response Policies];
+    G --> H[Response Logging];
+    H --> I[Client Response];
+```
+
+### 8. Policy Implementation Interface
+```python
+class ControlPolicy:
+    async def process_request(
+        request: Request, 
+        target_url: str, 
+        headers: Dict[str, str], 
+        body: Optional[bytes]
+    ) -> Dict[str, Any]
+
+    async def process_response(
+        request: Request, 
+        response: httpx.Response, 
+        content: bytes
+    ) -> Dict[str, Any]
+```
+
+### 9. Logging System
+- Logs all requests and responses
+- Configurable log levels
+- Separate API logging
+- Optional content logging
+- Structured log format
+
+### 10. Environment Configuration
+```
+Required:
+- OPENAI_API_KEY
+
+Optional:
+- LUTHIEN_HOST
+- LUTHIEN_PORT
+- LUTHIEN_RELOAD
+- LOG_LEVEL
+- LOG_FILE
+- LOG_CONTENT
+```
+
+This framework is designed for high-performance, asynchronous operation with a focus on:
+- Request/Response interception
+- Policy-based control
+- Comprehensive logging
+- Flexible configuration
+- Error handling
+- Security
